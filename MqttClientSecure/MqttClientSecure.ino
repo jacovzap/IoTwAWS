@@ -11,7 +11,6 @@ const char* MQTT_CLIENT_ID = "YOUR_CLIENT_ID";
 const char* SUBCRIBE_TOPIC = "ucb/aws_iot_in"; // subscribe
 const char* PUBLISH_TOPIC = "ucb/aws_iot_out"; // publish
 
-int inches = 0;
 int cm = 0;
 
 const char AMAZON_ROOT_CA1[] PROGMEM = R"EOF(
@@ -93,14 +92,17 @@ eZqYgn8yZwfIWHulG7zKOUMrg4rzGomP0rCe7j77Dt1veWxJaKI+
 WiFiClientSecure wifiClient;
 PubSubClient mqttClient(wifiClient);
 
+//funcion para encender el led amarillo, controlado por ALEXA
 void ledOn() {
   digitalWrite(27, HIGH);
 }
 
+//funcion para apagar el led amarillo, controlado por ALEXA
 void ledOff() {
   digitalWrite(27, LOW);
 }
 
+//Funcion que recibe el mensaje JSON que se publica en ucb/aws_iot_in, solo acepta un valor de en el documento JSON
 StaticJsonDocument<JSON_OBJECT_SIZE(1)> inputDoc;
 
 // PubSubClient callback function
@@ -112,26 +114,31 @@ void callback(const char* topic, byte* payload, unsigned int length) {
   if (String(topic) == SUBCRIBE_TOPIC) {
     Serial.println("Message from topic " + String(SUBCRIBE_TOPIC) + ":" + message);
 
+    //Se deserializa el mensaje en JSON
     DeserializationError err = deserializeJson(inputDoc, payload);
     if (!err) {
       String action = String(inputDoc["action"].as<char*>());
+
+      //El mensaje "action":"OFF" y "action":"ON" son controlados por ALEXA
       if (action == "ON") ledOn();
-      else if (action == "OFF") ledOff();
-      else if (action == "LED_RED") 
+      else if (action == "OFF") ledOff();   
+      else if (action == "LED_RED") //Los mensahes "action":"LED_RED" y "action":"LED_GREEN" son controlados por las reglas en el IoT CORE de AWS
       {
-         digitalWrite(14, HIGH);
-         digitalWrite(25, LOW);
+         digitalWrite(14, HIGH); //Encender led rojo
+         digitalWrite(25, LOW); //Apagar led verde
       }
       else if (action == "LED_GREEN") 
       {
-         digitalWrite(25, HIGH);
-         digitalWrite(14, LOW);
+         digitalWrite(25, HIGH);//Encender led verde
+         digitalWrite(14, LOW);//Encender led rojo
       }
       else Serial.println("Unsupported action received: " + action);
     }
   }
 }
 
+
+//leer la distancia calculada por el sensor ulrasonico y devolver un valor en pulgadas
 long readUltrasonicDistance(int triggerPin, int echoPin)
 {
 pinMode(triggerPin, OUTPUT); // Clear the trigger
@@ -147,6 +154,7 @@ return pulseIn(echoPin, HIGH);
 }
 
 
+//Conectar al endpoint de IoTCORE de AWS
 boolean mqttClientConnect() {
   Serial.println("Connecting to AWS " + String(AWS_ENDPOINT));
   if (mqttClient.connect(MQTT_CLIENT_ID)) {
@@ -170,6 +178,7 @@ void setup() {
   pinMode(25, OUTPUT);
   Serial.println("Connecting to " + String(WIFI_SSID));
 
+  //Intenta conectarse al wifi con las cadenas establecidas al principio del codigo
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   if (WiFi.waitForConnectResult() != WL_CONNECTED) {
     Serial.println("Can't connect to " + String(WIFI_SSID));
@@ -177,6 +186,7 @@ void setup() {
   }
   Serial.println("Connected to " + String(WIFI_SSID));
 
+  //Establece la comunicacion cifrada
   wifiClient.setCACert(AMAZON_ROOT_CA1);
   wifiClient.setCertificate(CERTIFICATE);
   wifiClient.setPrivateKey(PRIVATE_KEY);
@@ -190,6 +200,7 @@ unsigned long previousPublishMillis = 0;
 
 unsigned char counter = 0;
 
+//Publica datos en ucb/aws_iot_out en formato JSON los cuales son "id":"espdino32,"distancia":"(distancia_calculada)","value":("contador_de_envios")
 StaticJsonDocument<JSON_OBJECT_SIZE(3)> outputDoc;
 char outputBuffer[128];
 
@@ -202,6 +213,7 @@ void publishMessage(unsigned char value, String message) {
   serializeJson(outputDoc, outputBuffer);
   mqttClient.publish(PUBLISH_TOPIC, outputBuffer);
 }
+
 
 void loop() {
   unsigned long now = millis();
@@ -221,10 +233,10 @@ void loop() {
     if (now - previousPublishMillis >= 1000) {
       previousPublishMillis = now;
       // Publish message
-
-      cm = 0.01723 * readUltrasonicDistance(17, 16);
+      
+      cm = 0.01723 * readUltrasonicDistance(17, 16); //convertir la distancia leida por el sensor a centimetros
       String message = String(cm);
-      publishMessage(counter++, message);
+      publishMessage(counter++, message);//enviar la distancia y el contador para su publicacion
     }
   }
 }
