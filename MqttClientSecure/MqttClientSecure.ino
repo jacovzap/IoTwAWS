@@ -1,6 +1,17 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+// Incluimos librería
+#include <DHT.h>
+ 
+// Definimos el pin digital donde se conecta el sensor
+#define DHTPIN 26
+// Dependiendo del tipo de sensor
+#define DHTTYPE DHT11
+
+ 
+// Inicializamos el sensor DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
 const char* WIFI_SSID = "HUAWEI-5G";
 const char* WIFI_PASS = "COVA65755522";
@@ -125,12 +136,22 @@ void callback(const char* topic, byte* payload, unsigned int length) {
       else if (action == "LED_RED") //Los mensahes "action":"LED_RED" y "action":"LED_GREEN" son controlados por las reglas en el IoT CORE de AWS
       {
          digitalWrite(14, HIGH); //Encender led rojo
-         digitalWrite(25, LOW); //Apagar led verde
+         
       }
       else if (action == "LED_GREEN") 
       {
          digitalWrite(25, HIGH);//Encender led verde
-         digitalWrite(14, LOW);//Encender led rojo
+         
+      }
+      else if (action == "LED_GREEN_OFF") 
+      {
+      
+         digitalWrite(25, LOW);//Apagar led verde
+      }
+      else if (action == "LED_RED_OFF") 
+      {
+         
+         digitalWrite(14, LOW);//Apagar led rojo
       }
       else Serial.println("Unsupported action received: " + action);
     }
@@ -172,11 +193,14 @@ boolean mqttClientConnect() {
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 
-  Serial.begin(115200);
+  Serial.begin(9600);
   pinMode(14, OUTPUT);
   pinMode(27, OUTPUT); 
   pinMode(25, OUTPUT);
   Serial.println("Connecting to " + String(WIFI_SSID));
+
+  // Comenzamos el sensor DHT
+  dht.begin();
 
   //Intenta conectarse al wifi con las cadenas establecidas al principio del codigo
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -201,14 +225,16 @@ unsigned long previousPublishMillis = 0;
 unsigned char counter = 0;
 
 //Publica datos en ucb/aws_iot_out en formato JSON los cuales son "id":"espdino32,"distancia":"(distancia_calculada)","value":("contador_de_envios")
-StaticJsonDocument<JSON_OBJECT_SIZE(3)> outputDoc;
+StaticJsonDocument<JSON_OBJECT_SIZE(6)> outputDoc;
 char outputBuffer[128];
 
-void publishMessage(unsigned char value, String message) {
+void publishMessage(unsigned char value, String message, String h, String f) {
   
   outputDoc["id"] = "espdino32";
   outputDoc["distancia"] = message.c_str();
   outputDoc["value"] = value;
+  outputDoc["humidity"] = h;
+  outputDoc["temperature"] = f;
   
   serializeJson(outputDoc, outputBuffer);
   mqttClient.publish(PUBLISH_TOPIC, outputBuffer);
@@ -230,13 +256,27 @@ void loop() {
     mqttClient.loop();
     delay(20);
 
-    if (now - previousPublishMillis >= 1000) {
+    if (now - previousPublishMillis >= 3000) {
       previousPublishMillis = now;
       // Publish message
+
+
+      // Leemos la humedad relativa
+      float h = dht.readHumidity();
+      // Leemos la temperatura en grados centígrados (por defecto)
+      float t = dht.readTemperature();
+
+      // Comprobamos si ha habido algún error en la lectura
+      if (isnan(h) || isnan(t)) {
+      Serial.println("Error obteniendo los datos del sensor DHT11");
+      return;
+      } 
       
       cm = 0.01723 * readUltrasonicDistance(17, 16); //convertir la distancia leida por el sensor a centimetros
       String message = String(cm);
-      publishMessage(counter++, message);//enviar la distancia y el contador para su publicacion
+      String temperatura = String(t);
+      String humedad = String(h);
+      publishMessage(counter++, message, humedad, temperatura);//enviar la distancia, humedad, temperatura y el contador para su publicacion
     }
   }
 }
